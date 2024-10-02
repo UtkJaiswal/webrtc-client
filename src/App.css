@@ -1,0 +1,20 @@
+.remote-video-container {
+  position: relative;
+  display: inline-block;
+  margin: 10px;
+}
+
+.user-label {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  background-color: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 5px 10px;
+  border-radius: 5px;
+  font-size: 14px;
+}
+
+#local-video {
+  position: relative;
+}
