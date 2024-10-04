@@ -63,40 +63,85 @@ function App() {
     }
   };
 
+  // const startCapture = () => {
+  //   if (!localStreamRef.current) return;
+
+  //   const audioTrack = localStreamRef.current.getAudioTracks()[0];
+  //   mediaRecorderRef.current = new MediaRecorder(new MediaStream([audioTrack]));
+
+  //   mediaRecorderRef.current.ondataavailable = (event) => {
+  //     if (event.data.size > 0) {
+  //       audioChunksRef.current.push(event.data);
+  //     }
+  //   };
+
+  //   mediaRecorderRef.current.start(3333);
+  //   setIsCapturing(true);
+  // };
+
+  // const stopCapture = () => {
+  //   if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+  //     mediaRecorderRef.current.stop();
+  //     sendAudioChunks();
+  //   }
+  //   setIsCapturing(false);
+  // };
+
   const startCapture = () => {
     if (!localStreamRef.current) return;
 
     const audioTrack = localStreamRef.current.getAudioTracks()[0];
+    if (!audioTrack) {
+        console.error("No audio track available");
+        return;
+    }
+
     mediaRecorderRef.current = new MediaRecorder(new MediaStream([audioTrack]));
 
     mediaRecorderRef.current.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        audioChunksRef.current.push(event.data);
-      }
+        console.log('Data available:', event.data.size); // Log the size of the data
+        if (event.data.size > 0) {
+            audioChunksRef.current.push(event.data);
+        }
+    };
+
+    mediaRecorderRef.current.onstop = () => {
+        sendAudioChunks(); // Call sendAudioChunks when recording stops
     };
 
     mediaRecorderRef.current.start(3333);
     setIsCapturing(true);
-  };
+};
 
-  const stopCapture = () => {
+const stopCapture = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-      sendAudioChunks();
+        mediaRecorderRef.current.stop();
     }
     setIsCapturing(false);
-  };
+};
+
 
   const sendAudioChunks = () => {
     const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
     const formData = new FormData();
     const timestamp = Date.now();
     const fileName = `chunk-${timestamp}.webm`;
+    const jwtToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6OCwiaWF0IjoxNzI3OTYzMzg1LCJleHAiOjE3Mjg5NjMzODV9.3k1vcFq1b3PKu9ACS-OIjcgUuqSwzJqXLwODnlkBTxw'; // testing token (replace it by actual token)
+    const user_id = '5'; // testing user_id (replace it by actual token)
+    const debate_id = '66fc25aaba080b6215bdc4b2'; // testing debate_id
+    const debate_user_id = '66fc276591a061203b539ff2'; // testing debate_user_id
     formData.append('audio', audioBlob, fileName);
-  
-    fetch('https://localhost:8080/subjects/transcribe', {
+    formData.append('debate_id', debate_id); 
+    formData.append('user_id', user_id);
+    formData.append('debate_user_id', debate_user_id);
+    console.log('Audio blob size:', audioBlob.size); // Should be greater than 0
+
+    fetch('https://localhost:8080/debate/transcribeAndAnswer/', {
       method: 'POST',
       body: formData,
+      headers: {
+        'Authorization': `Bearer ${jwtToken}`,  // Add JWT token here
+      },
       credentials: 'include',
     })
     .then(response => {
