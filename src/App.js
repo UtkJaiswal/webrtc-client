@@ -8,6 +8,7 @@ function App() {
   const [isCapturing, setIsCapturing] = useState(false);
   const [transcription, setTranscription] = useState('');
   const [peerConnections, setPeerConnections] = useState(new Map());
+  const [otherUserTranscriptions, setOtherUserTranscriptions] = useState([]);
 
   const localVideoRef = useRef(null);
   const remoteVideosRef = useRef(null);
@@ -21,7 +22,7 @@ function App() {
     setUserName(randomUserName);
 
     socketRef.current = io.connect('https://localhost:8080/', {
-        auth: { userName: randomUserName, password: "x" }
+      auth: { userName: randomUserName, password: "x" }
     });
 
     setupSocketListeners();
@@ -32,6 +33,18 @@ function App() {
       }
     };
   }, []);
+
+  // Socket listener for receiving other users' transcriptions
+  useEffect(() => {
+    socketRef.current.on('transcription', (data) => {
+      if (data.from !== socketRef.current.id) {  // Exclude current user's transcriptions
+        const userNameOrId = data.userName ? data.userName : data.from;
+        setOtherUserTranscriptions(prev => [...prev, { userNameOrId, transcription: data.transcription }]);
+      }
+    });
+  }, []);
+
+
 
   const setupSocketListeners = () => {
     socketRef.current.on('userJoined', handleUserJoined);
@@ -92,33 +105,33 @@ function App() {
 
     const audioTrack = localStreamRef.current.getAudioTracks()[0];
     if (!audioTrack) {
-        console.error("No audio track available");
-        return;
+      console.error("No audio track available");
+      return;
     }
 
     mediaRecorderRef.current = new MediaRecorder(new MediaStream([audioTrack]));
 
     mediaRecorderRef.current.ondataavailable = (event) => {
-        console.log('Data available:', event.data.size); // Log the size of the data
-        if (event.data.size > 0) {
-            audioChunksRef.current.push(event.data);
-        }
+      console.log('Data available:', event.data.size); // Log the size of the data
+      if (event.data.size > 0) {
+        audioChunksRef.current.push(event.data);
+      }
     };
 
     mediaRecorderRef.current.onstop = () => {
-        sendAudioChunks(); // Call sendAudioChunks when recording stops
+      sendAudioChunks(); // Call sendAudioChunks when recording stops
     };
 
     mediaRecorderRef.current.start(3333);
     setIsCapturing(true);
-};
+  };
 
-const stopCapture = () => {
+  const stopCapture = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stop();
     }
     setIsCapturing(false);
-};
+  };
 
 
   const sendAudioChunks = () => {
@@ -131,10 +144,14 @@ const stopCapture = () => {
     const debate_id = '66fc25aaba080b6215bdc4b2'; // testing debate_id
     const debate_user_id = '66fc276591a061203b539ff2'; // testing debate_user_id
     formData.append('audio', audioBlob, fileName);
-    formData.append('debate_id', debate_id); 
+    formData.append('debate_id', debate_id);
     formData.append('user_id', user_id);
     formData.append('debate_user_id', debate_user_id);
     console.log('Audio blob size:', audioBlob.size); // Should be greater than 0
+    // if (audioBlob.size === 0) {
+    //   console.error('Empty audio blob');
+    //   return;
+    // }
 
     fetch('https://localhost:8080/debate/transcribeAndAnswer/', {
       method: 'POST',
@@ -144,22 +161,32 @@ const stopCapture = () => {
       },
       credentials: 'include',
     })
-    .then(response => {
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      return response.json();
-    })
-    .then(data => {
-      setTranscription(prev => prev + data.data.text + ' ');
-    })
-    .catch(error => {
-      console.error('Fetch error:', error);
-      if (error instanceof TypeError && error.message.includes('NetworkError')) {
-        console.error('Possible CORS or network connectivity issue');
-      }
-    });
-  
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+      })
+      .then(data => {
+        if (data.data.text) {
+          setTranscription(prev => prev + data.data.text + ' ');
+          // console.log('Transcription:', data.data.text);
+
+          // Emit transcription to the server
+          socketRef.current.emit('transcription', {
+            userName: userName,
+            roomId: roomId,
+            transcription: data.data.text
+          });
+        }
+      })
+      .catch(error => {
+        console.error('Fetch error:', error);
+        if (error instanceof TypeError && error.message.includes('NetworkError')) {
+          console.error('Possible CORS or network connectivity issue');
+        }
+      });
+
     audioChunksRef.current = [];
   };
 
@@ -201,7 +228,7 @@ const stopCapture = () => {
   };
 
   const handleUserJoined = async ({ userName: joinedUserName, socketId, roomId }) => {
-    console.log(`${joinedUserName} joined the room`);
+    console.log(`${joinedUserName} joined the room ${roomId}`);
     if (peerConnections.has(socketId)) {
       console.log(`Peer connection already exists for ${socketId}`);
       return;
@@ -270,10 +297,10 @@ const stopCapture = () => {
     <div className="container">
       <div className="row mb-3 mt-3 justify-content-md-center">
         <div id="user-name">{userName}</div>
-        <input 
-          type="text" 
-          value={roomId} 
-          onChange={(e) => setRoomId(e.target.value)} 
+        <input
+          type="text"
+          value={roomId}
+          onChange={(e) => setRoomId(e.target.value)}
           placeholder="Enter Room ID"
         />
         <button onClick={joinRoom} className="btn btn-primary">Join Room</button>
@@ -290,6 +317,15 @@ const stopCapture = () => {
       <div className="row mt-3">
         <h3>Transcription:</h3>
         <p>{transcription}</p>
+      </div>
+      <div className="row mt-3">
+        <h3>Other Users' Transcriptions:</h3>
+        {otherUserTranscriptions.map((user, index) => (
+          <div key={index}>
+            <h4>{user.userNameOrId}</h4> {/* Subheading showing either the user name or socket ID */}
+            <p>{user.transcription}</p>
+          </div>
+        ))}
       </div>
     </div>
   );
